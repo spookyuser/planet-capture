@@ -13,7 +13,7 @@
  *   browsers       - List detected browsers
  *   filters        - Manage URL filters (list/add/remove)
  *   embed          - Generate vector embeddings
- *   mcp            - Start MCP server (stub)
+ *   mcp            - Start MCP server (stdio or HTTP)
  */
 
 import { createStore as createInternalStore, enableProductionMode } from "../store.js";
@@ -356,9 +356,14 @@ async function cmdEmbed(store: Store, args: ParsedArgs): Promise<void> {
   console.log(`\nEmbedded ${result.chunksEmbedded} chunks across ${result.docsProcessed} pages (${result.errors} errors, ${result.durationMs}ms)`);
 }
 
-async function cmdMcp(_store: Store, _args: ParsedArgs): Promise<void> {
-  console.error("MCP server not yet implemented for planet-capture.");
-  process.exit(1);
+async function cmdMcp(_store: Store, args: ParsedArgs): Promise<void> {
+  const { startStdio, startHttp } = await import("../mcp/server.js");
+  if (args.flags.http) {
+    const port = args.flags.port ? Number(args.flags.port) : 8181;
+    await startHttp(port);
+  } else {
+    await startStdio();
+  }
 }
 
 // =============================================================================
@@ -383,7 +388,9 @@ Commands:
   filters [list|add|remove] [pattern]
                      Manage URL filters
   embed              Generate vector embeddings
-  mcp                Start MCP server
+  mcp                Start MCP server (stdio, default)
+  mcp --http         Start MCP server (HTTP)
+  mcp --http --port=N  HTTP on custom port (default 8181)
 
 Options (by command):
   index/discover/fetch:
