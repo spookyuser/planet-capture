@@ -1,111 +1,125 @@
-# QMD - Query Markup Documents
+# planet-capture
 
-An on-device search engine for everything you need to remember. Index your markdown notes, meeting transcripts, documentation, and knowledge bases. Search with keywords or natural language. Ideal for your agentic flows.
+An on-device search engine for your browser history. Indexes the pages you visit in Chrome, Arc, Brave, and Safari — then lets you search them with keywords, semantic similarity, or LLM-reranked hybrid search. Ideal for agentic workflows that need to answer "where did I read that?"
 
-QMD combines BM25 full-text search, vector semantic search, and LLM re-ranking—all running locally via node-llama-cpp with GGUF models.
-
-![QMD Architecture](assets/qmd-architecture.png)
-
-You can read more about QMD's progress in the [CHANGELOG](CHANGELOG.md).
+planet-capture combines BM25 full-text search, vector semantic search, and LLM re-ranking — all running locally via node-llama-cpp with GGUF models.
 
 ## Quick Start
 
 ```sh
 # Install globally (Node or Bun)
-npm install -g @tobilu/qmd
+npm install -g planet-capture
 # or
-bun install -g @tobilu/qmd
+bun install -g planet-capture
 
-# Or run directly
-npx @tobilu/qmd ...
-bunx @tobilu/qmd ...
+# See which browsers were detected
+planet-capture browsers
 
-# Create collections for your notes, docs, and meeting transcripts
-qmd collection add ~/notes --name notes
-qmd collection add ~/Documents/meetings --name meetings
-qmd collection add ~/work/docs --name docs
-
-# Add context to help with search results, each piece of context will be returned when matching sub documents are returned. This works as a tree. This is the key feature of QMD as it allows LLMs to make much better contextual choices when selecting documents. Don't sleep on it!
-qmd context add qmd://notes "Personal notes and ideas"
-qmd context add qmd://meetings "Meeting transcripts and notes"
-qmd context add qmd://docs "Work documentation"
+# Index your browser history + fetch visited pages
+planet-capture index
 
 # Generate embeddings for semantic search
-qmd embed
+planet-capture embed
 
-# Search across everything
-qmd search "project timeline"           # Fast keyword search
-qmd vsearch "how to deploy"             # Semantic search
-qmd query "quarterly planning process"  # Hybrid + reranking (best quality)
+# Search
+planet-capture search "rust async runtime"          # Fast BM25 keyword search
+planet-capture vsearch "how do I debounce input"    # Semantic search
+planet-capture query "typescript generics tutorial" # Hybrid + reranking (best quality)
 
-# Get a specific document
-qmd get "meetings/2024-01-15.md"
+# Look up a specific page
+planet-capture get "https://example.com/post"
 
-# Get a document by docid (shown in search results)
-qmd get "#abc123"
+# Look up a page by docid (shown in search results)
+planet-capture get "#abc123"
 
-# Get multiple documents by glob pattern
-qmd multi-get "journals/2025-05*.md"
+# Restrict results to one browser
+planet-capture search "api docs" --browser=chrome
 
-# Search within a specific collection
-qmd search "API" -c notes
-
-# Export all matches for an agent
-qmd search "API" --all --files --min-score 0.3
+# Export results for an agent
+planet-capture query "rust lifetimes" --files --min-score 0.3
 ```
+
+### Indexing
+
+```sh
+# Full indexing (discover URLs from browsers, fetch any new pages)
+planet-capture index
+
+# Common flags
+planet-capture index --since=2024-01-01    # Only include history after this date
+planet-capture index --rate-limit=5        # Fetches per second (default 2)
+planet-capture index --max-pages=500       # Cap fetches per run
+planet-capture index --discover-only       # Only read browser history, don't fetch
+planet-capture index --dry-run             # Preview without writing
+
+# Split indexing into two steps
+planet-capture discover                    # Only read browser history
+planet-capture fetch                       # Only fetch pending pages
+```
+
+Pages are fetched, run through Readability for main-content extraction, hashed,
+and stored in SQLite. Repeat visits to the same URL dedupe on content hash.
+
+### URL Filters
+
+Exclude noisy URLs (social feeds, search result pages, localhost) from the index:
+
+```sh
+planet-capture filters list
+planet-capture filters add "twitter.com/*/status"
+planet-capture filters add "localhost:*"
+planet-capture filters remove "twitter.com/*/status"
+```
+
+Filter patterns are glob-style and applied during discovery.
 
 ### Using with AI Agents
 
-QMD's `--json` and `--files` output formats are designed for agentic workflows:
+`--json` and `--files` output formats are designed for agentic workflows:
 
 ```sh
-# Get structured results for an LLM
-qmd search "authentication" --json -n 10
+# Structured results for an LLM
+planet-capture search "authentication" --json -n 10
 
-# List all relevant files above a threshold
-qmd query "error handling" --all --files --min-score 0.4
+# List all relevant URLs above a threshold
+planet-capture query "error handling" --files --min-score 0.4
 
-# Retrieve full document content
-qmd get "docs/api-reference.md" --full
+# Retrieve full page content
+planet-capture get "https://example.com/post" --full
 ```
 
 ### MCP Server
 
-Although the tool works perfectly fine when you just tell your agent to use it on the command line, it also exposes an MCP (Model Context Protocol) server for tighter integration.
+planet-capture ships an MCP (Model Context Protocol) server so agents can
+search your browser history without shelling out.
 
 **Tools exposed:**
-- `query` — Search with typed sub-queries (`lex`/`vec`/`hyde`), combined via RRF + reranking
-- `get` — Retrieve a document by path or docid (with fuzzy matching suggestions)
-- `multi_get` — Batch retrieve by glob pattern, comma-separated list, or docids
-- `status` — Index health and collection info
+- `search` — Hybrid BM25 + vector + LLM reranking over indexed pages
+- `get` — Retrieve a page by URL or docid
+- `recent` — List recently visited pages
+- `status` — Show index counts and browsers
+- `multi_get` — Batch retrieve pages by docid
 
 **Claude Desktop configuration** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
-    "qmd": {
-      "command": "qmd",
+    "planet-capture": {
+      "command": "planet-capture",
       "args": ["mcp"]
     }
   }
 }
 ```
 
-**Claude Code** — Install the plugin (recommended):
-
-```bash
-claude plugin marketplace add tobi/qmd
-claude plugin install qmd@qmd
-```
-
-Or configure MCP manually in `~/.claude/settings.json`:
+**Claude Code** — configure MCP in `~/.claude/settings.json`:
 
 ```json
 {
   "mcpServers": {
-    "qmd": {
-      "command": "qmd",
+    "planet-capture": {
+      "command": "planet-capture",
       "args": ["mcp"]
     }
   }
@@ -114,242 +128,74 @@ Or configure MCP manually in `~/.claude/settings.json`:
 
 #### HTTP Transport
 
-By default, QMD's MCP server uses stdio (launched as a subprocess by each client). For a shared, long-lived server that avoids repeated model loading, use the HTTP transport:
+By default the MCP server uses stdio (launched as a subprocess by each client).
+For a shared, long-lived server that avoids repeated model loading, use HTTP:
 
 ```sh
-# Foreground (Ctrl-C to stop)
-qmd mcp --http                    # localhost:8181
-qmd mcp --http --port 8080        # custom port
-
-# Background daemon
-qmd mcp --http --daemon           # start, writes PID to ~/.cache/qmd/mcp.pid
-qmd mcp stop                      # stop via PID file
-qmd status                        # shows "MCP: running (PID ...)" when active
+planet-capture mcp --http                    # localhost:8181
+planet-capture mcp --http --port=8080        # custom port
 ```
 
-The HTTP server exposes two endpoints:
-- `POST /mcp` — MCP Streamable HTTP (JSON responses, stateless)
-- `GET /health` — liveness check with uptime
-
-LLM models stay loaded in VRAM across requests. Embedding/reranking contexts are disposed after 5 min idle and transparently recreated on the next request (~1s penalty, models remain loaded).
+LLM models stay loaded in VRAM across requests. Embedding/reranking contexts
+are disposed after 5 min idle and transparently recreated on the next request.
 
 Point any MCP client at `http://localhost:8181/mcp` to connect.
 
 ### SDK / Library Usage
 
-Use QMD as a library in your own Node.js or Bun applications.
-
-#### Installation
+Use planet-capture as a library in your own Node.js or Bun applications.
 
 ```sh
-npm install @tobilu/qmd
+npm install planet-capture
 ```
 
-#### Quick Start
-
 ```typescript
-import { createStore } from '@tobilu/qmd'
+import { createStore } from 'planet-capture'
 
-const store = await createStore({
-  dbPath: './my-index.sqlite',
-  config: {
-    collections: {
-      docs: { path: '/path/to/docs', pattern: '**/*.md' },
-    },
-  },
-})
+const store = await createStore({ dbPath: './index.db' })
 
-const results = await store.search({ query: "authentication flow" })
-console.log(results.map(r => `${r.title} (${Math.round(r.score * 100)}%)`))
+// Hybrid search (BM25 + vector + reranking)
+const results = await store.search({ query: "rust async runtime" })
+console.log(results.map(r => `${r.title} (${Math.round(r.score * 100)}%) ${r.file}`))
+
+// Retrieve a page
+const page = await store.get("https://example.com/post")
+if (!("error" in page)) {
+  console.log(page.title, page.url, page.browsers, page.visitCount)
+}
+
+// Run indexing from code
+await store.index({ maxPages: 100 })
+
+// Generate embeddings
+await store.embed({ onProgress: ({ chunksEmbedded, totalChunks }) => {
+  console.log(`${chunksEmbedded}/${totalChunks}`)
+}})
+
+// Inspect index state
+const status = await store.getStatus()
+console.log(status.totalPages, status.fetchedPages, status.browsers)
 
 await store.close()
 ```
-
-#### Store Creation
-
-`createStore()` accepts three modes:
-
-```typescript
-import { createStore } from '@tobilu/qmd'
-
-// 1. Inline config — no files needed besides the DB
-const store = await createStore({
-  dbPath: './index.sqlite',
-  config: {
-    collections: {
-      docs: { path: '/path/to/docs', pattern: '**/*.md' },
-      notes: { path: '/path/to/notes' },
-    },
-  },
-})
-
-// 2. YAML config file — collections defined in a file
-const store2 = await createStore({
-  dbPath: './index.sqlite',
-  configPath: './qmd.yml',
-})
-
-// 3. DB-only — reopen a previously configured store
-const store3 = await createStore({ dbPath: './index.sqlite' })
-```
-
-#### Search
-
-The unified `search()` method handles both simple queries and pre-expanded structured queries:
-
-```typescript
-// Simple query — auto-expanded via LLM, then BM25 + vector + reranking
-const results = await store.search({ query: "authentication flow" })
-
-// With options
-const results2 = await store.search({
-  query: "rate limiting",
-  intent: "API throttling and abuse prevention",
-  collection: "docs",
-  limit: 5,
-  minScore: 0.3,
-  explain: true,
-})
-
-// Pre-expanded queries — skip auto-expansion, control each sub-query
-const results3 = await store.search({
-  queries: [
-    { type: 'lex', query: '"connection pool" timeout -redis' },
-    { type: 'vec', query: 'why do database connections time out under load' },
-  ],
-  collections: ["docs", "notes"],
-})
-
-// Skip reranking for faster results
-const fast = await store.search({ query: "auth", rerank: false })
-```
-
-For direct backend access:
-
-```typescript
-// BM25 keyword search (fast, no LLM)
-const lexResults = await store.searchLex("auth middleware", { limit: 10 })
-
-// Vector similarity search (embedding model, no reranking)
-const vecResults = await store.searchVector("how users log in", { limit: 10 })
-
-// Manual query expansion for full control
-const expanded = await store.expandQuery("auth flow", { intent: "user login" })
-const results4 = await store.search({ queries: expanded })
-```
-
-#### Retrieval
-
-```typescript
-// Get a document by path or docid
-const doc = await store.get("docs/readme.md")
-const byId = await store.get("#abc123")
-
-if (!("error" in doc)) {
-  console.log(doc.title, doc.displayPath, doc.context)
-}
-
-// Get document body with line range
-const body = await store.getDocumentBody("docs/readme.md", {
-  fromLine: 50,
-  maxLines: 100,
-})
-
-// Batch retrieve by glob or comma-separated list
-const { docs, errors } = await store.multiGet("docs/**/*.md", {
-  maxBytes: 20480,
-})
-```
-
-#### Collections
-
-```typescript
-// Add a collection
-await store.addCollection("myapp", {
-  path: "/src/myapp",
-  pattern: "**/*.ts",
-  ignore: ["node_modules/**", "*.test.ts"],
-})
-
-// List collections with document stats
-const collections = await store.listCollections()
-// => [{ name, pwd, glob_pattern, doc_count, active_count, last_modified, includeByDefault }]
-
-// Get names of collections included in queries by default
-const defaults = await store.getDefaultCollectionNames()
-
-// Remove / rename
-await store.removeCollection("myapp")
-await store.renameCollection("old-name", "new-name")
-```
-
-#### Context
-
-Context adds descriptive metadata that improves search relevance and is returned alongside results:
-
-```typescript
-// Add context for a path within a collection
-await store.addContext("docs", "/api", "REST API reference documentation")
-
-// Set global context (applies to all collections)
-await store.setGlobalContext("Internal engineering documentation")
-
-// List all contexts
-const contexts = await store.listContexts()
-// => [{ collection, path, context }]
-
-// Remove context
-await store.removeContext("docs", "/api")
-await store.setGlobalContext(undefined)  // clear global
-```
-
-#### Indexing
-
-```typescript
-// Re-index collections by scanning the filesystem
-const result = await store.update({
-  collections: ["docs"],  // optional — defaults to all
-  onProgress: ({ collection, file, current, total }) => {
-    console.log(`[${collection}] ${current}/${total} ${file}`)
-  },
-})
-// => { collections, indexed, updated, unchanged, removed, needsEmbedding }
-
-// Generate vector embeddings
-const embedResult = await store.embed({
-  force: false,           // true to re-embed everything
-  chunkStrategy: "auto",  // "regex" (default) or "auto" (AST for code files)
-  onProgress: ({ current, total, collection }) => {
-    console.log(`Embedding ${current}/${total}`)
-  },
-})
-```
-
-#### Types
 
 Key types exported for SDK consumers:
 
 ```typescript
 import type {
-  QMDStore,            // The store interface
-  SearchOptions,       // Options for search()
-  LexSearchOptions,    // Options for searchLex()
-  VectorSearchOptions, // Options for searchVector()
-  HybridQueryResult,   // Search result with score, snippet, context
-  SearchResult,        // Result from searchLex/searchVector
-  ExpandedQuery,       // Typed sub-query { type: 'lex'|'vec'|'hyde', query }
-  DocumentResult,      // Document metadata + body
-  DocumentNotFound,    // Error with similarFiles suggestions
-  MultiGetResult,      // Batch retrieval result
-  UpdateProgress,      // Progress callback info for update()
-  UpdateResult,        // Aggregated update result
-  EmbedProgress,       // Progress callback info for embed()
-  EmbedResult,         // Embedding result
-  StoreOptions,        // createStore() options
-  CollectionConfig,    // Inline config shape
-  IndexStatus,         // From getStatus()
-  IndexHealthInfo,     // From getIndexHealth()
-} from '@tobilu/qmd'
+  PlanetCaptureStore,  // The store interface
+  SearchOptions,
+  HybridQueryResult,
+  PageResult,
+  PageNotFound,
+  SearchResult,
+  ExpandedQuery,
+  BrowserInfo,
+  IndexStatus,
+  IndexHealthInfo,
+  IndexOptions,
+  EmbedResult,
+} from 'planet-capture'
 ```
 
 Utility exports:
@@ -358,25 +204,20 @@ Utility exports:
 import {
   extractSnippet,              // Extract a relevant snippet from text
   addLineNumbers,              // Add line numbers to text
-  DEFAULT_MULTI_GET_MAX_BYTES, // Default max file size for multiGet (10KB)
+  DEFAULT_MULTI_GET_MAX_BYTES, // Default max body size for multi-get (10KB)
   Maintenance,                 // Database maintenance operations
-} from '@tobilu/qmd'
+  getDefaultDbPath,            // Default index path (~/.planet-capture/index.db)
+} from 'planet-capture'
 ```
 
-#### Lifecycle
-
-```typescript
-// Close the store — disposes LLM models and DB connection
-await store.close()
-```
-
-The SDK requires explicit `dbPath` — no defaults are assumed. This makes it safe to embed in any application without side effects.
+The SDK requires explicit `dbPath` — no defaults are assumed. This makes it
+safe to embed in any application without side effects.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         QMD Hybrid Search Pipeline                          │
+│                     planet-capture Hybrid Search Pipeline                   │
 └─────────────────────────────────────────────────────────────────────────────┘
 
                               ┌─────────────────┐
@@ -387,10 +228,9 @@ The SDK requires explicit `dbPath` — no defaults are assumed. This makes it sa
                         ▼                             ▼
                ┌────────────────┐            ┌────────────────┐
                │ Query Expansion│            │  Original Query│
-               │  (fine-tuned)  │            │   (×2 weight)  │
+               │     (LLM)      │            │   (×2 weight)  │
                └───────┬────────┘            └───────┬────────┘
                        │                             │
-                       │ 2 alternative queries       │
                        └──────────────┬──────────────┘
                                       │
               ┌───────────────────────┼───────────────────────┐
@@ -422,7 +262,6 @@ The SDK requires explicit `dbPath` — no defaults are assumed. This makes it sa
                           ┌───────────────────────┐
                           │    LLM Re-ranking     │
                           │  (qwen3-reranker)     │
-                          │  Yes/No + logprobs    │
                           └───────────┬───────────┘
                                       │
                                       ▼
@@ -448,18 +287,16 @@ The SDK requires explicit `dbPath` — no defaults are assumed. This makes it sa
 
 The `query` command uses **Reciprocal Rank Fusion (RRF)** with position-aware blending:
 
-1. **Query Expansion**: Original query (×2 for weighting) + 1 LLM variation
+1. **Query Expansion**: Original query (×2 weight) + LLM variations
 2. **Parallel Retrieval**: Each query searches both FTS and vector indexes
 3. **RRF Fusion**: Combine all result lists using `score = Σ(1/(k+rank+1))` where k=60
 4. **Top-Rank Bonus**: Documents ranking #1 in any list get +0.05, #2-3 get +0.02
 5. **Top-K Selection**: Take top 30 candidates for reranking
-6. **Re-ranking**: LLM scores each document (yes/no with logprobs confidence)
+6. **Re-ranking**: LLM scores each chunk (yes/no with logprobs confidence)
 7. **Position-Aware Blending**:
    - RRF rank 1-3: 75% retrieval, 25% reranker (preserves exact matches)
    - RRF rank 4-10: 60% retrieval, 40% reranker
    - RRF rank 11+: 40% retrieval, 60% reranker (trust reranker more)
-
-**Why this approach**: Pure RRF can dilute exact matches when expanded queries don't match. The top-rank bonus preserves documents that score #1 for the original query. Position-aware blending prevents the reranker from destroying high-confidence retrieval results.
 
 ### Score Interpretation
 
@@ -472,6 +309,19 @@ The `query` command uses **Reciprocal Rank Fusion (RRF)** with position-aware bl
 
 ## Requirements
 
+### Supported Browsers
+
+| Browser | History | Bookmarks | Platform |
+|---------|---------|-----------|----------|
+| Chrome  | ✅       | ✅         | macOS    |
+| Arc     | ✅       | ✅         | macOS    |
+| Brave   | ✅       | ✅         | macOS    |
+| Safari  | ✅       | ✅         | macOS    |
+
+planet-capture reads browser history from local SQLite databases and bookmarks
+from the JSON / plist files each browser ships with. No cloud sync, no
+credentials required — just read access to `~/Library/Application Support/`.
+
 ### System Requirements
 
 - **Node.js** >= 22
@@ -483,461 +333,140 @@ The `query` command uses **Reciprocal Rank Fusion (RRF)** with position-aware bl
 
 ### GGUF Models (via node-llama-cpp)
 
-QMD uses three local GGUF models (auto-downloaded on first use):
+planet-capture uses three local GGUF models (auto-downloaded on first use):
 
 | Model | Purpose | Size |
 |-------|---------|------|
 | `embeddinggemma-300M-Q8_0` | Vector embeddings (default) | ~300MB |
 | `qwen3-reranker-0.6b-q8_0` | Re-ranking | ~640MB |
-| `qmd-query-expansion-1.7B-q4_k_m` | Query expansion (fine-tuned) | ~1.1GB |
+| `Qwen3-1.7B` | Query expansion | ~1.1GB |
 
-Models are downloaded from HuggingFace and cached in `~/.cache/qmd/models/`.
+Models are downloaded from HuggingFace and cached in `~/.cache/node-llama-cpp/`.
 
 ### Custom Embedding Model
 
-Override the default embedding model via the `QMD_EMBED_MODEL` environment variable.
-This is useful for multilingual corpora (e.g. Chinese, Japanese, Korean) where
+Override the default embedding model via the `PLANET_CAPTURE_EMBED_MODEL`
+environment variable. Useful for multilingual content where
 `embeddinggemma-300M` has limited coverage.
 
 ```sh
-# Use Qwen3-Embedding-0.6B for better multilingual (CJK) support
-export QMD_EMBED_MODEL="hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
-
-# After changing the model, re-embed all collections:
-qmd embed -f
+export PLANET_CAPTURE_EMBED_MODEL="hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
+planet-capture embed -f    # Re-embed with the new model
 ```
 
-Supported model families:
-- **embeddinggemma** (default) — English-optimized, small footprint
-- **Qwen3-Embedding** — Multilingual (119 languages including CJK), MTEB top-ranked
-
-> **Note:** When switching embedding models, you must re-index with `qmd embed -f`
-> since vectors are not cross-compatible between models. The prompt format is
-> automatically adjusted for each model family.
+> **Note:** When switching embedding models, re-index with `planet-capture embed -f`
+> since vectors are not cross-compatible between models.
 
 ## Installation
 
 ```sh
-npm install -g @tobilu/qmd
+npm install -g planet-capture
 # or
-bun install -g @tobilu/qmd
+bun install -g planet-capture
 ```
 
 ### Development
 
 ```sh
-git clone https://github.com/tobi/qmd
-cd qmd
-npm install
-npm link
+git clone https://github.com/spookyuser/planet-capture
+cd planet-capture
+bun install
+bun link   # Install globally as 'planet-capture'
+
+# Run from source during development
+bun src/cli/planet-capture.ts <command>
 ```
 
-## Usage
-
-### Collection Management
-
-```sh
-# Create a collection from current directory
-qmd collection add . --name myproject
-
-# Create a collection with explicit path and custom glob mask
-qmd collection add ~/Documents/notes --name notes --mask "**/*.md"
-
-# List all collections
-qmd collection list
-
-# Remove a collection
-qmd collection remove myproject
-
-# Rename a collection
-qmd collection rename myproject my-project
-
-# List files in a collection
-qmd ls notes
-qmd ls notes/subfolder
-```
-
-### Generate Vector Embeddings
-
-```sh
-# Embed all indexed documents (900 tokens/chunk, 15% overlap)
-qmd embed
-
-# Force re-embed everything
-qmd embed -f
-
-# Enable AST-aware chunking for code files (TS, JS, Python, Go, Rust)
-qmd embed --chunk-strategy auto
-
-# Also works with query for consistent chunk selection
-qmd query "auth flow" --chunk-strategy auto
-```
-
-**AST-aware chunking** (`--chunk-strategy auto`) uses tree-sitter to chunk code
-files at function, class, and import boundaries instead of arbitrary text
-positions. This produces higher-quality chunks and better search results for
-codebases. Markdown and other file types always use regex-based chunking
-regardless of strategy.
-
-The default is `regex` (existing behavior). Use `--chunk-strategy auto` to
-opt in. Run `qmd status` to verify which grammars are available.
-
-> **Note:** Tree-sitter grammars are optional dependencies. If they are not
-> installed, `--chunk-strategy auto` falls back to regex-only chunking
-> automatically. Tested on both Node.js and Bun.
-
-### Context Management
-
-Context adds descriptive metadata to collections and paths, helping search understand your content.
-
-```sh
-# Add context to a collection (using qmd:// virtual paths)
-qmd context add qmd://notes "Personal notes and ideas"
-qmd context add qmd://docs/api "API documentation"
-
-# Add context from within a collection directory
-cd ~/notes && qmd context add "Personal notes and ideas"
-cd ~/notes/work && qmd context add "Work-related notes"
-
-# Add global context (applies to all collections)
-qmd context add / "Knowledge base for my projects"
-
-# List all contexts
-qmd context list
-
-# Remove context
-qmd context rm qmd://notes/old
-```
-
-### Search Commands
+## Search Commands
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                        Search Modes                              │
 ├──────────┬───────────────────────────────────────────────────────┤
-│ search   │ BM25 full-text search only                           │
-│ vsearch  │ Vector semantic search only                          │
-│ query    │ Hybrid: FTS + Vector + Query Expansion + Re-ranking  │
+│ search   │ BM25 full-text search only                            │
+│ vsearch  │ Vector semantic search only                           │
+│ query    │ Hybrid: FTS + Vector + Query Expansion + Re-ranking   │
 └──────────┴───────────────────────────────────────────────────────┘
-```
-
-```sh
-# Full-text search (fast, keyword-based)
-qmd search "authentication flow"
-
-# Vector search (semantic similarity)
-qmd vsearch "how to login"
-
-# Hybrid search with re-ranking (best quality)
-qmd query "user authentication"
 ```
 
 ### Options
 
 ```sh
 # Search options
--n <num>           # Number of results (default: 5, or 20 for --files/--json)
--c, --collection   # Restrict search to a specific collection
---all              # Return all matches (use with --min-score to filter)
+-n <num>           # Number of results (default: 10)
+--browser=NAME     # Restrict to a specific browser
 --min-score <num>  # Minimum score threshold (default: 0)
---full             # Show full document content
+--full             # Show full page content
 --line-numbers     # Add line numbers to output
---explain          # Include retrieval score traces (query, JSON/CLI output)
---index <name>     # Use named index
+--intent=TEXT      # Disambiguation intent (query only)
 
-# Output formats (for search and multi-get)
---files            # Output: docid,score,filepath,context
---json             # JSON output with snippets
+# Output formats
+--files            # Output: docid,score,url
+--json             # JSON with snippets
 --csv              # CSV output
 --md               # Markdown output
 --xml              # XML output
 
 # Get options
-qmd get <file>[:line]  # Get document, optionally starting at line
--l <num>               # Maximum lines to return
---from <num>           # Start from line number
-
-# Multi-get options
--l <num>           # Maximum lines per file
---max-bytes <num>  # Skip files larger than N bytes (default: 10KB)
-```
-
-### Output Format
-
-Default output is colorized CLI format (respects `NO_COLOR` env).
-
-When stdout is a TTY, result paths are emitted as clickable terminal hyperlinks (OSC 8). Clicking a path opens the file in your editor using an editor URI template.
-
-When stdout is not a TTY (for example piped to another command or redirected to a file), QMD emits plain text paths with no escape sequences.
-
-TTY example:
-
-```
-docs/guide.md:42 #a1b2c3
-Title: Software Craftsmanship
-Context: Work documentation
-Score: 93%
-
-This section covers the **craftsmanship** of building
-quality software with attention to detail.
-See also: engineering principles
-
-
-notes/meeting.md:15 #d4e5f6
-Title: Q4 Planning
-Context: Personal notes and ideas
-Score: 67%
-
-Discussion about code quality and craftsmanship
-in the development process.
-```
-
-Configure the editor link target with `QMD_EDITOR_URI` (or `editor_uri` in config):
-
-```sh
-# VS Code (default)
-export QMD_EDITOR_URI="vscode://file/{path}:{line}:{col}"
-
-# Cursor
-export QMD_EDITOR_URI="cursor://file/{path}:{line}:{col}"
-
-# Zed
-export QMD_EDITOR_URI="zed://file/{path}:{line}:{col}"
-
-# Sublime Text
-export QMD_EDITOR_URI="subl://open?url=file://{path}&line={line}"
-```
-
-Template placeholders:
-- `{path}` absolute filesystem path (URI-encoded)
-- `{line}` 1-based line number
-- `{col}` or `{column}` 1-based column number
-
-- **Path**: Collection-relative path (e.g., `docs/guide.md`)
-- **Docid**: Short hash identifier (e.g., `#a1b2c3`) - use with `qmd get #a1b2c3`
-- **Title**: Extracted from document (first heading or filename)
-- **Context**: Path context if configured via `qmd context add`
-- **Score**: Color-coded (green >70%, yellow >40%, dim otherwise)
-- **Snippet**: Context around match with query terms highlighted
-
-### Examples
-
-```sh
-# Get 10 results with minimum score 0.3
-qmd query -n 10 --min-score 0.3 "API design patterns"
-
-# Output as markdown for LLM context
-qmd search --md --full "error handling"
-
-# JSON output for scripting
-qmd query --json "quarterly reports"
-
-# Inspect how each result was scored (RRF + rerank blend)
-qmd query --json --explain "quarterly reports"
-
-# Use separate index for different knowledge base
-qmd --index work search "quarterly reports"
-```
-
-### Index Maintenance
-
-```sh
-# Show index status and collections with contexts
-qmd status
-
-# Re-index all collections
-qmd update
-
-# Re-index with git pull first (for remote repos)
-qmd update --pull
-
-# Get document by filepath (with fuzzy matching suggestions)
-qmd get notes/meeting.md
-
-# Get document by docid (from search results)
-qmd get "#abc123"
-
-# Get document starting at line 50, max 100 lines
-qmd get notes/meeting.md:50 -l 100
-
-# Get multiple documents by glob pattern
-qmd multi-get "journals/2025-05*.md"
-
-# Get multiple documents by comma-separated list (supports docids)
-qmd multi-get "doc1.md, doc2.md, #abc123"
-
-# Limit multi-get to files under 20KB
-qmd multi-get "docs/*.md" --max-bytes 20480
-
-# Output multi-get as JSON for agent processing
-qmd multi-get "docs/*.md" --json
-
-# Clean up cache and orphaned data
-qmd cleanup
+planet-capture get <url|#docid>  # Retrieve a page
+-l <num>                         # Max lines to return
+--from <num>                     # Start from line number
 ```
 
 ## Data Storage
 
-Index stored in: `~/.cache/qmd/index.sqlite`
+Index stored at: `~/.planet-capture/index.db`
 
 ### Schema
 
 ```sql
-collections     -- Indexed directories with name and glob patterns
-path_contexts   -- Context descriptions by virtual path (qmd://...)
-documents       -- Markdown content with metadata and docid (6-char hash)
-documents_fts   -- FTS5 full-text index
+browsers        -- Detected browsers with history/bookmarks paths
+pages           -- Canonical URL → content hash + fetch status
+page_sources    -- Which browsers contributed each URL (visit counts, timestamps)
+content         -- Content-addressable: hash → extracted page text
+pages_fts       -- FTS5 full-text index over page titles + bodies
 content_vectors -- Embedding chunks (hash, seq, pos, 900 tokens each)
-vectors_vec     -- sqlite-vec vector index (hash_seq key)
+vectors_vec     -- sqlite-vec vector index
 llm_cache       -- Cached LLM responses (query expansion, rerank scores)
+url_filters     -- Glob patterns to exclude from discovery
+indexer_state   -- Most recent indexing run metadata
 ```
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `XDG_CACHE_HOME` | `~/.cache` | Cache directory location |
 
 ## How It Works
 
 ### Indexing Flow
 
 ```
-Collection ──► Glob Pattern ──► Markdown Files ──► Parse Title ──► Hash Content
-    │                                                   │              │
-    │                                                   │              ▼
-    │                                                   │         Generate docid
-    │                                                   │         (6-char hash)
-    │                                                   │              │
-    └──────────────────────────────────────────────────►└──► Store in SQLite
-                                                                       │
-                                                                       ▼
-                                                                  FTS5 Index
+Browser History ──► Filter URLs ──► Fetch HTML ──► Readability ──► Hash Content
+      │                                                    │              │
+      ▼                                                    │              ▼
+ page_sources                                              │         Generate docid
+ (visits, browser)                                         │         (6-char hash)
+      │                                                    │              │
+      └───────────────────────────────────────────────────►└──► pages + content
+                                                                          │
+                                                                          ▼
+                                                                     FTS5 Index
 ```
 
 ### Embedding Flow
 
-Documents are chunked into ~900-token pieces with 15% overlap using smart boundary detection:
+Pages are chunked into ~900-token pieces with 15% overlap using smart boundary
+detection, then embedded with node-llama-cpp:
 
 ```
-Document ──► Smart Chunk (~900 tokens) ──► Format each chunk ──► node-llama-cpp ──► Store Vectors
-                │                           "title | text"        embedBatch()
-                │
-                └─► Chunks stored with:
-                    - hash: document hash
-                    - seq: chunk sequence (0, 1, 2...)
-                    - pos: character position in original
+Page ──► Smart Chunk (~900 tokens) ──► Format each chunk ──► node-llama-cpp ──► Store Vectors
+          │                            "title | text"        embedBatch()
+          │
+          └─► Chunks stored with (hash, seq, pos) per chunk
 ```
 
 ### Smart Chunking
 
-Instead of cutting at hard token boundaries, QMD uses a scoring algorithm to find natural markdown break points. This keeps semantic units (sections, paragraphs, code blocks) together.
-
-**Break Point Scores:**
-
-| Pattern | Score | Description |
-|---------|-------|-------------|
-| `# Heading` | 100 | H1 - major section |
-| `## Heading` | 90 | H2 - subsection |
-| `### Heading` | 80 | H3 |
-| `#### Heading` | 70 | H4 |
-| `##### Heading` | 60 | H5 |
-| `###### Heading` | 50 | H6 |
-| ` ``` ` | 80 | Code block boundary |
-| `---` / `***` | 60 | Horizontal rule |
-| Blank line | 20 | Paragraph boundary |
-| `- item` / `1. item` | 5 | List item |
-| Line break | 1 | Minimal break |
-
-**Algorithm:**
-
-1. Scan document for all break points with scores
-2. When approaching the 900-token target, search a 200-token window before the cutoff
-3. Score each break point: `finalScore = baseScore × (1 - (distance/window)² × 0.7)`
-4. Cut at the highest-scoring break point
-
-The squared distance decay means a heading 200 tokens back (score ~30) still beats a simple line break at the target (score 1), but a closer heading wins over a distant one.
-
-**Code Fence Protection:** Break points inside code blocks are ignored—code stays together. If a code block exceeds the chunk size, it's kept whole when possible.
-
-**AST-Aware Chunking (Code Files):**
-
-For supported code files, QMD also parses the source with [tree-sitter](https://tree-sitter.github.io/) and adds AST-derived break points that are merged with the regex scores above:
-
-| AST Node | Score | Languages |
-|----------|-------|-----------|
-| Class / interface / struct / impl / trait | 100 | All |
-| Function / method | 90 | All |
-| Type alias / enum | 80 | All |
-| Import / use declaration | 60 | All |
-
-Supported for `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, `.go`, and `.rs` files. Enable with `--chunk-strategy auto`. Markdown and other file types always use regex chunking.
-
-### Query Flow (Hybrid)
-
-```
-Query ──► LLM Expansion ──► [Original, Variant 1, Variant 2]
-                │
-      ┌─────────┴─────────┐
-      ▼                   ▼
-   For each query:     FTS (BM25)
-      │                   │
-      ▼                   ▼
-   Vector Search      Ranked List
-      │
-      ▼
-   Ranked List
-      │
-      └─────────┬─────────┘
-                ▼
-         RRF Fusion (k=60)
-         Original query ×2 weight
-         Top-rank bonus: +0.05/#1, +0.02/#2-3
-                │
-                ▼
-         Top 30 candidates
-                │
-                ▼
-         LLM Re-ranking
-         (yes/no + logprob confidence)
-                │
-                ▼
-         Position-Aware Blend
-         Rank 1-3:  75% RRF / 25% reranker
-         Rank 4-10: 60% RRF / 40% reranker
-         Rank 11+:  40% RRF / 60% reranker
-                │
-                ▼
-         Final Results
-```
-
-## Model Configuration
-
-Models are configured in `src/llm.ts` as HuggingFace URIs:
-
-```typescript
-const DEFAULT_EMBED_MODEL = "hf:ggml-org/embeddinggemma-300M-GGUF/embeddinggemma-300M-Q8_0.gguf";
-const DEFAULT_RERANK_MODEL = "hf:ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/qwen3-reranker-0.6b-q8_0.gguf";
-const DEFAULT_GENERATE_MODEL = "hf:tobil/qmd-query-expansion-1.7B-gguf/qmd-query-expansion-1.7B-q4_k_m.gguf";
-```
-
-### EmbeddingGemma Prompt Format
-
-```
-// For queries
-"task: search result | query: {query}"
-
-// For documents
-"title: {title} | text: {content}"
-```
-
-### Qwen3-Reranker
-
-Uses node-llama-cpp's `createRankingContext()` and `rankAndSort()` API for cross-encoder reranking. Returns documents sorted by relevance score (0.0 - 1.0).
-
-### Qwen3 (Query Expansion)
-
-Used for generating query variations via `LlamaChatSession`.
+Instead of cutting at hard token boundaries, planet-capture uses a scoring
+algorithm to find natural markdown/prose break points — headings, code fences,
+blank lines, list items. The squared distance decay means a heading 200 tokens
+back still beats a simple line break at the target.
 
 ## License
 
