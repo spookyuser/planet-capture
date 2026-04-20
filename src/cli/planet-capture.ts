@@ -18,7 +18,7 @@
 
 import { createStore as createInternalStore, enableProductionMode } from "../store.js";
 import type { Store } from "../store.js";
-import { runIndex, discover, fetchPages } from "../indexer.js";
+import { runIndex, discover, fetchPages, type IndexScope } from "../indexer.js";
 import { detectBrowsers } from "../browsers.js";
 import { generateEmbeddings } from "../store.js";
 import {
@@ -91,11 +91,25 @@ function asInt(val: string | boolean | undefined, fallback: number): number {
   return fallback;
 }
 
+/**
+ * Parse the first positional as a scope ("history" | "bookmarks"), returning
+ * the scope and the remaining positionals. Exits on an unknown first word
+ * when it looks like the user intended a scope.
+ */
+function extractScope(args: ParsedArgs): { scope?: IndexScope; rest: string[] } {
+  const first = args.positional[0];
+  if (first === "history" || first === "bookmarks") {
+    return { scope: first, rest: args.positional.slice(1) };
+  }
+  return { rest: args.positional };
+}
+
 // =============================================================================
 // Commands
 // =============================================================================
 
 async function cmdIndex(store: Store, args: ParsedArgs): Promise<void> {
+  const { scope } = extractScope(args);
   const browser = typeof args.flags.browser === "string" ? args.flags.browser : undefined;
   const rateLimit = asInt(args.flags["rate-limit"], 2);
   const maxPages = args.flags["max-pages"] ? asInt(args.flags["max-pages"], 1000) : undefined;
@@ -109,9 +123,11 @@ async function cmdIndex(store: Store, args: ParsedArgs): Promise<void> {
     store.upsertBrowser(b.name, b.historyPath, b.bookmarksPath ?? null);
   }
 
-  console.log("Discovering URLs from browser history...");
+  const scopeLabel = scope ?? "history + bookmarks";
+  console.log(`Discovering URLs from ${scopeLabel}...`);
   const result = await runIndex(store, {
     browser,
+    scope,
     since,
     rateLimit,
     maxPages,
@@ -134,6 +150,7 @@ async function cmdIndex(store: Store, args: ParsedArgs): Promise<void> {
 }
 
 async function cmdDiscover(store: Store, args: ParsedArgs): Promise<void> {
+  const { scope } = extractScope(args);
   const browser = typeof args.flags.browser === "string" ? args.flags.browser : undefined;
   const since = typeof args.flags.since === "string" ? new Date(args.flags.since) : undefined;
 
@@ -144,6 +161,7 @@ async function cmdDiscover(store: Store, args: ParsedArgs): Promise<void> {
 
   const result = discover(store, {
     browser,
+    scope,
     since,
     onProgress: (info) => console.log(`  ${info.browser} ${info.phase}: ${info.entriesFound} entries`),
   });
@@ -152,6 +170,7 @@ async function cmdDiscover(store: Store, args: ParsedArgs): Promise<void> {
 }
 
 async function cmdFetch(store: Store, args: ParsedArgs): Promise<void> {
+  const { scope } = extractScope(args);
   const rateLimit = asInt(args.flags["rate-limit"], 2);
   const maxPages = args.flags["max-pages"] ? asInt(args.flags["max-pages"], 1000) : undefined;
   const dryRun = !!args.flags["dry-run"];
@@ -160,6 +179,7 @@ async function cmdFetch(store: Store, args: ParsedArgs): Promise<void> {
     rateLimit,
     maxPages,
     dryRun,
+    scope,
     onProgress: (info) => {
       const statusEmoji = info.status === "fetched" ? "✓" : info.status === "failed" ? "✗" : "·";
       console.log(`  ${statusEmoji} ${info.current}/${info.total} ${info.url}`);
@@ -376,9 +396,13 @@ function printHelp(): void {
 Usage: planet-capture <command> [options]
 
 Commands:
-  index              Discover URLs from browsers + fetch pages
-  discover           Only read browser history (no fetch)
-  fetch              Only fetch pending pages (no discover)
+  index [scope]      Discover URLs from browsers + fetch pages
+  discover [scope]   Only read browser sources (no fetch)
+  fetch [scope]      Only fetch pending pages (no discover)
+
+  [scope] is optional and may be "history" or "bookmarks".
+  Omit to operate on both.
+
   search <query>     BM25 full-text search
   vsearch <query>    Vector similarity search
   query <query>      Hybrid search (BM25 + vector + rerank)

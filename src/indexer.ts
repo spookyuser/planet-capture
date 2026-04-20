@@ -60,9 +60,14 @@ export interface FetchResult {
   durationMs: number;
 }
 
+/** Limit a run to history URLs only, bookmark URLs only, or both (default). */
+export type IndexScope = "history" | "bookmarks";
+
 export interface IndexOptions {
   /** Only index specific browser */
   browser?: string;
+  /** Restrict to history or bookmarks; omit for both */
+  scope?: IndexScope;
   /** Only history after this date */
   since?: Date;
   /** Requests per second (default: 2) */
@@ -91,6 +96,7 @@ export interface IndexOptions {
  */
 export function discover(store: Store, options?: {
   browser?: string;
+  scope?: IndexScope;
   since?: Date;
   onProgress?: (info: DiscoverProgress) => void;
 }): DiscoverResult {
@@ -106,6 +112,9 @@ export function discover(store: Store, options?: {
   // Get user-defined exclude filters from DB
   const excludeFilters = store.getExcludeFilters();
 
+  const includeHistory = options?.scope !== "bookmarks";
+  const includeBookmarks = options?.scope !== "history";
+
   let totalDiscovered = 0;
   let totalUpdated = 0;
   let totalSkipped = 0;
@@ -118,43 +127,45 @@ export function discover(store: Store, options?: {
       browser.bookmarksPath ?? null
     );
 
-    // Read history
-    const historyEntries: HistoryEntry[] = browser.type === "chromium"
-      ? readChromiumHistory(browser, { since: options?.since })
-      : readSafariHistory(browser, { since: options?.since });
+    if (includeHistory) {
+      // Read history
+      const historyEntries: HistoryEntry[] = browser.type === "chromium"
+        ? readChromiumHistory(browser, { since: options?.since })
+        : readSafariHistory(browser, { since: options?.since });
 
-    options?.onProgress?.({
-      browser: browser.name,
-      phase: "history",
-      entriesFound: historyEntries.length,
-    });
+      options?.onProgress?.({
+        browser: browser.name,
+        phase: "history",
+        entriesFound: historyEntries.length,
+      });
 
-    for (const entry of historyEntries) {
-      if (matchesExcludeFilter(entry.url, excludeFilters)) {
-        totalSkipped++;
-        continue;
+      for (const entry of historyEntries) {
+        if (matchesExcludeFilter(entry.url, excludeFilters)) {
+          totalSkipped++;
+          continue;
+        }
+
+        const pageId = store.upsertPage(
+          entry.url,
+          entry.title,
+          null, // no content hash yet
+          "pending"
+        );
+
+        store.upsertPageSource(
+          pageId,
+          entry.browser,
+          "history",
+          entry.visitCount,
+          entry.lastVisitTime.toISOString()
+        );
+
+        totalDiscovered++;
       }
-
-      const pageId = store.upsertPage(
-        entry.url,
-        entry.title,
-        null, // no content hash yet
-        "pending"
-      );
-
-      store.upsertPageSource(
-        pageId,
-        entry.browser,
-        "history",
-        entry.visitCount,
-        entry.lastVisitTime.toISOString()
-      );
-
-      totalDiscovered++;
     }
 
     // Read bookmarks (Chromium only)
-    if (browser.type === "chromium") {
+    if (includeBookmarks && browser.type === "chromium") {
       const bookmarkEntries: BookmarkEntry[] = readChromiumBookmarks(browser);
 
       options?.onProgress?.({
@@ -212,6 +223,7 @@ export async function fetchPages(store: Store, options?: {
   rateLimit?: number;
   maxPages?: number;
   dryRun?: boolean;
+  scope?: IndexScope;
   onProgress?: (info: FetchProgress) => void;
   signal?: AbortSignal;
 }): Promise<FetchResult> {
@@ -219,7 +231,12 @@ export async function fetchPages(store: Store, options?: {
   const limit = options?.maxPages ?? 1000;
   const rateLimiter = createRateLimiter(options?.rateLimit ?? 2);
 
-  const pendingPages = store.getPendingPages(limit);
+  const sourceType = options?.scope === "bookmarks"
+    ? "bookmark"
+    : options?.scope === "history"
+      ? "history"
+      : undefined;
+  const pendingPages = store.getPendingPages(limit, sourceType);
 
   if (options?.dryRun) {
     for (const page of pendingPages) {
@@ -377,6 +394,7 @@ export async function runIndex(store: Store, options?: IndexOptions): Promise<{
   // Phase 1: Discover
   const discoverResult = discover(store, {
     browser: options?.browser,
+    scope: options?.scope,
     since: options?.since,
     onProgress: options?.onDiscoverProgress,
   });
@@ -390,6 +408,7 @@ export async function runIndex(store: Store, options?: IndexOptions): Promise<{
     rateLimit: options?.rateLimit,
     maxPages: options?.maxPages,
     dryRun: options?.dryRun,
+    scope: options?.scope,
     onProgress: options?.onFetchProgress,
     signal: options?.signal,
   });

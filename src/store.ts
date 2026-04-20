@@ -828,11 +828,22 @@ export function updatePageFetchResult(
 /**
  * Get pending pages (not yet fetched or previously failed).
  * Ordered by most recently visited first.
+ *
+ * If sourceType is provided, only include pages that have at least one
+ * page_sources row with that source_type (e.g. "history" or "bookmark").
  */
 export function getPendingPages(
   db: Database,
-  limit: number = 1000
+  limit: number = 1000,
+  sourceType?: "history" | "bookmark"
 ): { id: number; url: string; title: string }[] {
+  const sourceFilter = sourceType
+    ? `AND EXISTS (SELECT 1 FROM page_sources ps2 WHERE ps2.page_id = p.id AND ps2.source_type = ?)`
+    : "";
+  const params: (string | number)[] = [];
+  if (sourceType) params.push(sourceType);
+  params.push(limit);
+
   return db.prepare(`
     SELECT p.id, p.url, p.title
     FROM pages p
@@ -842,9 +853,10 @@ export function getPendingPages(
       GROUP BY page_id
     ) ps ON ps.page_id = p.id
     WHERE p.active = 1 AND p.fetch_status IN ('pending', 'failed')
+    ${sourceFilter}
     ORDER BY ps.last_visit DESC NULLS LAST
     LIMIT ?
-  `).all(limit) as { id: number; url: string; title: string }[];
+  `).all(...params) as { id: number; url: string; title: string }[];
 }
 
 /**
@@ -1056,7 +1068,7 @@ export type Store = {
   upsertPage: (url: string, title: string, hash: string | null, fetchStatus: string) => number;
   upsertPageSource: (pageId: number, browser: string, sourceType: string, visitCount: number, lastVisitTime: string | null, bookmarkFolder?: string) => void;
   updatePageFetchResult: (url: string, hash: string | null, title: string, fetchStatus: string, fetchError?: string) => void;
-  getPendingPages: (limit?: number) => { id: number; url: string; title: string }[];
+  getPendingPages: (limit?: number, sourceType?: "history" | "bookmark") => { id: number; url: string; title: string }[];
   getPageByUrl: (url: string) => { id: number; hash: string | null; title: string; fetch_status: string } | null;
 
   // Browser operations
@@ -1455,7 +1467,7 @@ export function createStore(dbPath?: string): Store {
     upsertPage: (url: string, title: string, hash: string | null, fetchStatus: string) => upsertPage(db, url, title, hash, fetchStatus),
     upsertPageSource: (pageId: number, browser: string, sourceType: string, visitCount: number, lastVisitTime: string | null, bookmarkFolder?: string) => upsertPageSource(db, pageId, browser, sourceType, visitCount, lastVisitTime, bookmarkFolder),
     updatePageFetchResult: (url: string, hash: string | null, title: string, fetchStatus: string, fetchError?: string) => updatePageFetchResult(db, url, hash, title, fetchStatus, fetchError),
-    getPendingPages: (limit?: number) => getPendingPages(db, limit),
+    getPendingPages: (limit?: number, sourceType?: "history" | "bookmark") => getPendingPages(db, limit, sourceType),
     getPageByUrl: (url: string) => getPageByUrl(db, url),
 
     // Browser operations
