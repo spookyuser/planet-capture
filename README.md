@@ -7,7 +7,11 @@ planet-capture combines BM25 full-text search, vector semantic search, and LLM r
 ## Quick Start
 
 ```sh
-bun install -g https://github.com/spookyuser/planet-capture
+git clone https://github.com/spookyuser/planet-capture
+cd planet-capture
+bun install
+bun run build
+bun link
 
 # See which browsers were detected
 planet-capture browsers
@@ -354,15 +358,9 @@ planet-capture embed -f    # Re-embed with the new model
 
 ## Installation
 
-### Global CLI install
-
-```sh
-bun install -g https://github.com/spookyuser/planet-capture
-```
-
-This repo runs `prepare` on install so Bun builds the CLI automatically.
-
-### Development
+Clone the repo and link it — this is the only supported install path today
+(the package is not yet published to npm, and `bun install -g` from a git URL
+doesn't run the `prepare` build step).
 
 ```sh
 git clone https://github.com/spookyuser/planet-capture
@@ -372,10 +370,13 @@ bun run build
 bun link
 ```
 
+`bun link` puts `planet-capture` on your PATH. To update later, `git pull &&
+bun install && bun run build` inside the checkout.
+
 ### Run from source
 
 ```sh
-# Run from source during development
+# Run from source during development, no build required
 bun src/cli/planet-capture.ts <command>
 ```
 ## Search Commands
