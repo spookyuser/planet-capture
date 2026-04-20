@@ -365,7 +365,7 @@ export function readSafariHistory(
     let query = `
       SELECT
         hi.url,
-        COALESCE(hi.title, '') as title,
+        COALESCE(hv.title, '') as title,
         hi.visit_count,
         MAX(hv.visit_time) as last_visit_time
       FROM history_items hi
@@ -382,7 +382,7 @@ export function readSafariHistory(
       query = `
         SELECT
           hi.url,
-          COALESCE(hi.title, '') as title,
+          COALESCE(hv.title, '') as title,
           hi.visit_count,
           MAX(hv.visit_time) as last_visit_time
         FROM history_items hi
