@@ -22,6 +22,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json && printf '#!/usr/bin/env node\n' | cat - dist/cli/planet-capture.js > dist/cli/planet-capture.tmp && mv dist/cli/planet-capture.tmp dist/cli/planet-capture.js && chmod +x dist/cli/planet-capture.js",
+    "prepare": "bun run build",
     "test": "vitest run --reporter=verbose test/",
     "dev": "bun src/cli/planet-capture.ts"
   },
@@ -54,6 +55,10 @@
     "tsx": "4.21.0",
     "vitest": "3.2.4"
   },
+  "trustedDependencies": [
+    "better-sqlite3",
+    "node-llama-cpp"
+  ],
   "pnpm": {
     "onlyBuiltDependencies": [
       "better-sqlite3",

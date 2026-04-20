@@ -7,10 +7,7 @@ planet-capture combines BM25 full-text search, vector semantic search, and LLM r
 ## Quick Start
 
 ```sh
-# Install globally (Node or Bun)
-npm install -g planet-capture
-# or
-bun install -g planet-capture
+bun install -g https://github.com/spookyuser/planet-capture
 
 # See which browsers were detected
 planet-capture browsers
@@ -145,9 +142,7 @@ Point any MCP client at `http://localhost:8181/mcp` to connect.
 
 Use planet-capture as a library in your own Node.js or Bun applications.
 
-```sh
-npm install planet-capture
-```
+Install from a GitHub checkout or from the published package once available.
 
 ```typescript
 import { createStore } from 'planet-capture'
@@ -359,11 +354,13 @@ planet-capture embed -f    # Re-embed with the new model
 
 ## Installation
 
+### Global CLI install
+
 ```sh
-npm install -g planet-capture
-# or
-bun install -g planet-capture
+bun install -g https://github.com/spookyuser/planet-capture
 ```
+
+This repo runs `prepare` on install so Bun builds the CLI automatically.
 
 ### Development
 
@@ -371,12 +368,16 @@ bun install -g planet-capture
 git clone https://github.com/spookyuser/planet-capture
 cd planet-capture
 bun install
-bun link   # Install globally as 'planet-capture'
+bun run build
+bun link
+```
 
+### Run from source
+
+```sh
 # Run from source during development
 bun src/cli/planet-capture.ts <command>
 ```
-
 ## Search Commands
 
 ```
